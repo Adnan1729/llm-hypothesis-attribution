@@ -1,9 +1,4 @@
-"""Step 4: 10-abstract benchmark.
-
-Loads the model once, runs the full pipeline (generate + Feature Ablation)
-on 10 abstracts that have at least 4 of the 5 rhetorical sections.
-Saves per-abstract results as JSON and prints throughput stats.
-"""
+"""Step 4: 10-abstract benchmark."""
 import time
 import torch
 from src.data.load_csabstruct import load_csabstruct
@@ -16,7 +11,13 @@ MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 MAX_NEW_TOKENS = 80
 SEED = 42
 N_ABSTRACTS = 10
-MIN_SECTIONS = 4   # require abstracts with at least this many distinct labels
+MIN_SECTIONS = 4
+
+GENERATION_PARAMS = {
+    "max_new_tokens": MAX_NEW_TOKENS,
+    "do_sample": False,
+    "seed": SEED,
+}
 
 
 def generate_hypothesis(model, tokenizer, context, prompt_template):
@@ -60,26 +61,31 @@ def main():
 
     for i, abstract in enumerate(selected, 1):
         t_start = time.time()
+
+        t_gen = time.time()
         hypothesis = generate_hypothesis(
             model, tokenizer, abstract.full_text, HYPOTHESIS_PROMPT_V1
         )
-        result = feature_ablation(
-            model, tokenizer, abstract, hypothesis, HYPOTHESIS_PROMPT_V1
-        )
-        elapsed = time.time() - t_start
-        per_abstract_times.append(elapsed)
+        gen_time = time.time() - t_gen
 
-        # Save individual result
+        result = feature_ablation(
+            model, tokenizer, abstract, hypothesis, HYPOTHESIS_PROMPT_V1,
+            model_name=MODEL_NAME,
+            generation_params=GENERATION_PARAMS,
+        )
+        result.generation_time_s = round(gen_time, 3)
+        result.total_time_s = round(time.time() - t_start, 3)
+
         save_json(result, out_dir / f"{abstract.abstract_id}.json")
         all_results.append(result)
+        per_abstract_times.append(result.total_time_s)
 
-        # Print compact summary
         ranked = sorted(result.attributions.items(), key=lambda x: x[1], reverse=True)
         ranked_str = ", ".join(f"{s}:{v:.1f}" for s, v in ranked)
         print(f"  [{i}/{len(selected)}] {abstract.abstract_id} "
-              f"({len(abstract.sections)} sections, {elapsed:.1f}s) -> {ranked_str}")
+              f"({len(abstract.sections)} sections, {result.total_time_s:.1f}s) "
+              f"-> {ranked_str}")
 
-    # Aggregate timing
     total = sum(per_abstract_times)
     avg = total / len(per_abstract_times)
     print(f"\n[5] Throughput summary:")
@@ -88,7 +94,6 @@ def main():
     print(f"    Min / max per abs:  {min(per_abstract_times):.1f}s / "
           f"{max(per_abstract_times):.1f}s")
 
-    # Project full-dataset cost
     full_size = 2189
     projected_hours = (avg * full_size) / 3600
     print(f"\n[6] Projection for full dataset ({full_size} abstracts):")
