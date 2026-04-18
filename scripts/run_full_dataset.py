@@ -1,4 +1,11 @@
-"""Full dataset run: both attribution methods on all CSABSTRUCT abstracts."""
+"""Full dataset run: both attribution methods on all CSABSTRUCT abstracts.
+
+Usage:
+    python -m scripts.run_full_dataset                          # default TinyLlama
+    python -m scripts.run_full_dataset --model phi3             # Phi-3-mini
+    python -m scripts.run_full_dataset --model llama8b          # Llama-3.1-8B
+"""
+import argparse
 import time
 import json
 import csv
@@ -11,26 +18,37 @@ from src.attribution.shapley import shapley_value_sampling
 from src.generation.prompts import HYPOTHESIS_PROMPT_V1
 from src.utils.io import get_output_dir, save_json
 
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-MAX_NEW_TOKENS = 80
-SEED = 42
-SHAPLEY_SAMPLES = 100
-MIN_SECTIONS = 2  # include all abstracts with at least 2 sections
 
-GENERATION_PARAMS = {
-    "max_new_tokens": MAX_NEW_TOKENS,
-    "do_sample": False,
-    "seed": SEED,
+MODEL_CONFIGS = {
+    "tinyllama": {
+        "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "run_name": "full_tinyllama",
+        "max_new_tokens": 80,
+    },
+    "phi3": {
+        "model_name": "microsoft/Phi-3-mini-4k-instruct",
+        "run_name": "full_phi3",
+        "max_new_tokens": 80,
+    },
+    "llama8b": {
+        "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+        "run_name": "full_llama8b",
+        "max_new_tokens": 80,
+    },
 }
 
+SEED = 42
+SHAPLEY_SAMPLES = 100
+MIN_SECTIONS = 2
 
-def generate_hypothesis(model, tokenizer, context, prompt_template):
+
+def generate_hypothesis(model, tokenizer, context, prompt_template, max_new_tokens):
     prompt = prompt_template.format(context=context)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     torch.manual_seed(SEED)
     out = model.generate(
         **inputs,
-        max_new_tokens=MAX_NEW_TOKENS,
+        max_new_tokens=max_new_tokens,
         do_sample=False,
         pad_token_id=tokenizer.eos_token_id,
     )
@@ -39,7 +57,24 @@ def generate_hypothesis(model, tokenizer, context, prompt_template):
 
 
 def main():
-    print(f"=== Full dataset run: FA + Shapley ===\n")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="tinyllama",
+                        choices=list(MODEL_CONFIGS.keys()),
+                        help="Model to run: tinyllama, phi3, llama8b")
+    args = parser.parse_args()
+
+    config = MODEL_CONFIGS[args.model]
+    model_name = config["model_name"]
+    run_name = config["run_name"]
+    max_new_tokens = config["max_new_tokens"]
+
+    generation_params = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": False,
+        "seed": SEED,
+    }
+
+    print(f"=== Full dataset run: {args.model} ({model_name}) ===\n")
 
     # Load all splits
     print("[1] Loading all CSABSTRUCT splits...")
@@ -49,12 +84,10 @@ def main():
         print(f"    {split}: {len(abstracts)} abstracts")
         all_abstracts.extend(abstracts)
 
-    # Filter
     selected = [a for a in all_abstracts if len(a.sections) >= MIN_SECTIONS]
     print(f"\n    Total: {len(all_abstracts)} abstracts")
     print(f"    After filtering (>={MIN_SECTIONS} sections): {len(selected)}")
 
-    # Section distribution summary
     section_counts = {}
     for a in selected:
         n = len(a.sections)
@@ -62,14 +95,13 @@ def main():
     print(f"    Section count distribution: {dict(sorted(section_counts.items()))}\n")
 
     # Load model
-    print(f"[2] Loading model {MODEL_NAME}...")
+    print(f"[2] Loading model {model_name}...")
     t0 = time.time()
-    model, tokenizer = load_model(MODEL_NAME)
+    model, tokenizer = load_model(model_name)
     model_load_time = time.time() - t0
     print(f"    Model loaded on {model.device} in {model_load_time:.1f}s\n")
 
     # Output directories
-    run_name = "full_tinyllama"
     out_dir_fa = get_output_dir(f"{run_name}/feature_ablation")
     out_dir_sh = get_output_dir(f"{run_name}/shapley")
     out_dir_summary = get_output_dir(run_name)
@@ -89,18 +121,18 @@ def main():
 
     for i, abstract in enumerate(selected, 1):
         try:
-            # Generate hypothesis
             t_gen = time.time()
             hypothesis = generate_hypothesis(
-                model, tokenizer, abstract.full_text, HYPOTHESIS_PROMPT_V1
+                model, tokenizer, abstract.full_text, HYPOTHESIS_PROMPT_V1,
+                max_new_tokens
             )
             gen_time = round(time.time() - t_gen, 3)
 
             # Feature Ablation
             fa_result = feature_ablation(
                 model, tokenizer, abstract, hypothesis, HYPOTHESIS_PROMPT_V1,
-                model_name=MODEL_NAME,
-                generation_params=GENERATION_PARAMS,
+                model_name=model_name,
+                generation_params=generation_params,
             )
             fa_result.generation_time_s = gen_time
             fa_result.total_time_s = round(gen_time + fa_result.attribution_time_s, 3)
@@ -111,8 +143,8 @@ def main():
             sh_result = shapley_value_sampling(
                 model, tokenizer, abstract, hypothesis, HYPOTHESIS_PROMPT_V1,
                 num_samples=SHAPLEY_SAMPLES,
-                model_name=MODEL_NAME,
-                generation_params=GENERATION_PARAMS,
+                model_name=model_name,
+                generation_params=generation_params,
                 seed=SEED,
             )
             sh_result.generation_time_s = gen_time
@@ -120,16 +152,17 @@ def main():
             save_json(sh_result, out_dir_sh / f"{abstract.abstract_id}.json")
             sh_times.append(sh_result.attribution_time_s)
 
-            # Compare top sections
+            # Compare
             fa_top = max(fa_result.attributions, key=fa_result.attributions.get)
             sh_top = max(sh_result.shapley_values, key=sh_result.shapley_values.get)
             agree = fa_top == sh_top
             if agree:
                 agreements += 1
 
-            # Build summary row
+            # Summary row
             row = {
                 "abstract_id": abstract.abstract_id,
+                "model": args.model,
                 "num_sentences": len(abstract.sentences),
                 "num_sections": len(abstract.sections),
                 "sections_present": ",".join(sorted(abstract.sections.keys())),
@@ -142,17 +175,14 @@ def main():
                 "sh_time_s": sh_result.attribution_time_s,
                 "sh_forward_passes": sh_result.num_forward_passes,
             }
-            # Add per-section scores for both methods
             for label in LABEL_NAMES:
                 row[f"fa_{label}"] = fa_result.attributions.get(label, None)
                 row[f"sh_{label}"] = sh_result.shapley_values.get(label, None)
-                # Section word count
                 info = fa_result.sections_info.get(label, {})
                 row[f"words_{label}"] = info.get("num_words", 0)
 
             summary_rows.append(row)
 
-            # Progress logging every 50 abstracts
             if i % 50 == 0 or i == len(selected):
                 elapsed = time.time() - t_run_start
                 rate = i / elapsed
@@ -177,15 +207,15 @@ def main():
             writer.writeheader()
             writer.writerows(summary_rows)
 
-    # Write error log
     if errors:
         save_json(errors, out_dir_summary / "errors.json")
 
-    # Write run metadata
+    # Run metadata
     total_time = time.time() - t_run_start
     metadata = {
-        "model_name": MODEL_NAME,
-        "generation_params": GENERATION_PARAMS,
+        "model_key": args.model,
+        "model_name": model_name,
+        "generation_params": generation_params,
         "shapley_samples": SHAPLEY_SAMPLES,
         "min_sections": MIN_SECTIONS,
         "total_abstracts": len(all_abstracts),
@@ -204,7 +234,7 @@ def main():
 
     # Final report
     print(f"\n{'=' * 60}")
-    print(f"FINAL REPORT")
+    print(f"FINAL REPORT — {args.model} ({model_name})")
     print(f"{'=' * 60}")
     print(f"Abstracts processed: {len(summary_rows)}")
     print(f"Errors:              {len(errors)}")
@@ -213,7 +243,6 @@ def main():
     print(f"Avg Shapley time:    {metadata['avg_sh_time_s']:.3f}s per abstract")
     print(f"Top-section agree:   {metadata['top_section_agreement_pct']}%")
 
-    # Per-section summary (FA)
     print(f"\nFA: times each section ranked #1:")
     fa_top_counts = {}
     for row in summary_rows:
@@ -223,7 +252,6 @@ def main():
         pct = fa_top_counts[s] / len(summary_rows) * 100
         print(f"    {s:<15} {fa_top_counts[s]:>5} ({pct:.1f}%)")
 
-    # Per-section summary (Shapley)
     print(f"\nShapley: times each section ranked #1:")
     sh_top_counts = {}
     for row in summary_rows:
