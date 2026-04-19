@@ -22,3 +22,29 @@ outputs/
 # OS files
 .DS_Store
 Thumbs.db
+# Raw JSON outputs (too large for git, archived on Zenodo)
+results/*/feature_ablation/
+results/*/shapley/
+
+# HPC and environment files
+*.o[0-9]*
+*.e[0-9]*
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.egg-info/
+venv/
+envs/
+
+# HuggingFace cache
+hf_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large model files
+*.safetensors
+*.bin
+*.pt
+*.pth

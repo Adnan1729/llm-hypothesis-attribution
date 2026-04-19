@@ -1,0 +1,21 @@
+{
+  "model_key": "llama8b",
+  "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+  "generation_params": {
+    "max_new_tokens": 80,
+    "do_sample": false,
+    "seed": 42
+  },
+  "shapley_samples": 100,
+  "min_sections": 2,
+  "total_abstracts": 2189,
+  "processed_abstracts": 2153,
+  "skipped_abstracts": 36,
+  "errors": 0,
+  "top_section_agreement_pct": 93.9,
+  "total_time_s": 5445.8,
+  "model_load_time_s": 84.2,
+  "avg_fa_time_s": 0.158,
+  "avg_sh_time_s": 0.391,
+  "prompt_template": "Read this scientific paper abstract and identify its main hypothesis. Be specific and concise.\n\nAbstract: {context}\n\nMain hypothesis:"
+}

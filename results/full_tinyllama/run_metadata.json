@@ -1,0 +1,20 @@
+{
+  "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "generation_params": {
+    "max_new_tokens": 80,
+    "do_sample": false,
+    "seed": 42
+  },
+  "shapley_samples": 100,
+  "min_sections": 2,
+  "total_abstracts": 2189,
+  "processed_abstracts": 2153,
+  "skipped_abstracts": 36,
+  "errors": 0,
+  "top_section_agreement_pct": 93.8,
+  "total_time_s": 3747.0,
+  "model_load_time_s": 24.6,
+  "avg_fa_time_s": 0.09,
+  "avg_sh_time_s": 0.231,
+  "prompt_template": "Read this scientific paper abstract and identify its main hypothesis. Be specific and concise.\n\nAbstract: {context}\n\nMain hypothesis:"
+}
