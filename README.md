@@ -1,6 +1,6 @@
-# What Drives LLM-Generated Hypotheses? A Large-Scale Attribution Analysis of Scientific Abstract Sections
+# What Drives LLM-Generated Hypotheses?
 
-Large language models are increasingly used to generate scientific hypotheses, yet which parts of scientific text actually drive these outputs remains unknown. This repository contains the code, data, and analysis for the first large-scale attribution study measuring how rhetorical sections of scientific abstracts — Background, Objective, Method, Result, and Other — influence LLM-generated hypotheses.
+Large language models are increasingly used to generate scientific hypotheses, yet which parts of scientific text actually drive these outputs remains unknown. This repository contains the code, data, and analysis for the first large-scale attribution study measuring how rhetorical sections of scientific abstracts: Background, Objective, Method, Result, and Other; influence LLM-generated hypotheses.
 
 **Central finding:** Result sections almost never drive hypothesis generation (0.4–0.7% top-ranked), while Objective sections dominate (36–38%). This hierarchy is stable across three model scales (1.1B to 8B parameters) and two attribution methods (Feature Ablation and Shapley Value Sampling), which agree in 93–95% of cases.
 
