@@ -5,8 +5,7 @@ from datasets import load_dataset
 
 
 # CSABSTRUCT label order (from the HuggingFace dataset's ClassLabel feature)
-LABEL_NAMES = ["background", "objective", "method", "result", "other"]
-
+LABEL_NAMES = ["background", "method", "objective", "other", "result"]
 
 @dataclass
 class Abstract:

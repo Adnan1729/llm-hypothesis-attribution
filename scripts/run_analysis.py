@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # non-interactive backend for HPC
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
@@ -27,13 +27,13 @@ import numpy as np
 ICML_STYLE = {
     "font.family": "serif",
     "font.serif": ["Times", "Times New Roman", "DejaVu Serif"],
-    "font.size": 10,
-    "axes.titlesize": 11,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 9,
-    "figure.titlesize": 12,
+    "font.size": 11,
+    "axes.titlesize": 12,
+    "axes.labelsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+    "figure.titlesize": 13,
     "axes.linewidth": 0.8,
     "grid.linewidth": 0.4,
     "lines.linewidth": 1.5,
@@ -43,24 +43,24 @@ ICML_STYLE = {
     "axes.spines.right": False,
     "savefig.dpi": 300,
     "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.05,
+    "savefig.pad_inches": 0.08,
     "figure.figsize": (5.5, 3.5),
 }
 plt.rcParams.update(ICML_STYLE)
 
-# Consistent colour palette across all figures
+# Consistent colour palette
 SECTION_COLORS = {
     "background": "#4C72B0",
-    "objective":  "#DD8452",
-    "method":     "#55A868",
-    "result":     "#C44E52",
+    "method":     "#DD8452",
+    "objective":  "#55A868",
     "other":      "#8172B3",
+    "result":     "#C44E52",
 }
-SECTION_ORDER = ["background", "objective", "method", "result", "other"]
+SECTION_ORDER = ["background", "method", "objective", "result", "other"]
 SECTION_LABELS = {
     "background": "Background",
-    "objective":  "Objective",
     "method":     "Method",
+    "objective":  "Objective",
     "result":     "Result",
     "other":      "Other",
 }
@@ -69,19 +69,18 @@ MODEL_DISPLAY = {
     "phi3":      "Phi-3-mini-4k",
     "llama8b":   "Llama-3.1-8B",
 }
+MODEL_ORDER = ["tinyllama", "phi3", "llama8b"]
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 def load_summary_csv(path):
-    """Load a summary CSV into a list of dicts (avoids pandas dependency)."""
     import csv
     rows = []
     with open(path) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Convert numeric fields
             for k, v in row.items():
                 if v == "" or v is None or v == "None":
                     row[k] = None
@@ -98,7 +97,6 @@ def load_summary_csv(path):
 
 
 def discover_runs(base_dir):
-    """Find all completed model runs in the output directory."""
     runs = {}
     for entry in sorted(Path(base_dir).iterdir()):
         if entry.is_dir() and entry.name.startswith("full_"):
@@ -116,21 +114,27 @@ def discover_runs(base_dir):
                     "meta": meta,
                     "data": load_summary_csv(csv_path),
                 }
-    return runs
+    # Sort by MODEL_ORDER
+    ordered = {}
+    for mk in MODEL_ORDER:
+        if mk in runs:
+            ordered[mk] = runs[mk]
+    for mk in runs:
+        if mk not in ordered:
+            ordered[mk] = runs[mk]
+    return ordered
 
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Helpers
 # ---------------------------------------------------------------------------
 
 def get_section_scores(data, method, section):
-    """Extract non-None scores for a given method and section."""
     key = f"{method}_{section}"
     return [row[key] for row in data if row.get(key) is not None]
 
 
 def get_top_section_counts(data, method):
-    """Count how often each section ranks #1."""
     key = f"{method}_top_section"
     counts = {}
     for row in data:
@@ -141,7 +145,6 @@ def get_top_section_counts(data, method):
 
 
 def save_fig(fig, path, name):
-    """Save figure in both PDF (for paper) and PNG (for quick viewing)."""
     fig.savefig(path / f"{name}.pdf")
     fig.savefig(path / f"{name}.png")
     plt.close(fig)
@@ -149,12 +152,11 @@ def save_fig(fig, path, name):
 
 
 # ---------------------------------------------------------------------------
-# Figure 1: Mean attribution scores per section (single model)
+# Figure 1: Mean attribution scores per section
 # ---------------------------------------------------------------------------
 
 def fig_mean_attribution_bars(data, model_key, out_dir):
-    """Bar chart of mean attribution per section for both methods."""
-    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.0), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(6.0, 3.2), sharey=True)
 
     for ax, (method, method_label) in zip(axes, [("fa", "Feature Ablation"),
                                                    ("sh", "Shapley Value")]):
@@ -174,26 +176,27 @@ def fig_mean_attribution_bars(data, model_key, out_dir):
             labels.append(SECTION_LABELS[sec])
 
         x = np.arange(len(SECTION_ORDER))
-        bars = ax.bar(x, means, yerr=stds, color=colors, edgecolor="white",
-                      linewidth=0.5, capsize=3, error_kw={"linewidth": 0.8})
+        ax.bar(x, means, yerr=stds, color=colors, edgecolor="white",
+               linewidth=0.5, capsize=3, error_kw={"linewidth": 0.8},
+               width=0.7)
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=35, ha="right")
-        ax.set_title(method_label)
-        ax.set_ylabel("Mean attribution score" if ax == axes[0] else "")
+        ax.set_xticklabels(labels, rotation=0, ha="center")
+        ax.set_title(method_label, fontsize=11, pad=8)
+        if ax == axes[0]:
+            ax.set_ylabel("Mean attribution score")
 
     fig.suptitle(f"Sectional Attribution — {MODEL_DISPLAY.get(model_key, model_key)}",
-                 y=1.02)
+                 fontsize=12, y=1.03)
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig1_mean_attribution_{model_key}")
 
 
 # ---------------------------------------------------------------------------
-# Figure 2: Top-section frequency (single model, both methods side by side)
+# Figure 2: Top-section frequency
 # ---------------------------------------------------------------------------
 
 def fig_top_section_frequency(data, model_key, out_dir):
-    """Grouped bar chart showing how often each section ranks #1."""
-    fig, ax = plt.subplots(figsize=(5.5, 3.0))
+    fig, ax = plt.subplots(figsize=(5.5, 3.2))
 
     fa_counts = get_top_section_counts(data, "fa")
     sh_counts = get_top_section_counts(data, "sh")
@@ -205,28 +208,35 @@ def fig_top_section_frequency(data, model_key, out_dir):
     fa_vals = [fa_counts.get(s, 0) / total * 100 for s in SECTION_ORDER]
     sh_vals = [sh_counts.get(s, 0) / total * 100 for s in SECTION_ORDER]
 
-    ax.bar(x - width / 2, fa_vals, width, label="Feature Ablation",
-           color="#4C72B0", edgecolor="white", linewidth=0.5)
-    ax.bar(x + width / 2, sh_vals, width, label="Shapley Value",
-           color="#DD8452", edgecolor="white", linewidth=0.5)
+    bars1 = ax.bar(x - width / 2, fa_vals, width, label="Feature Ablation",
+                   color="#4C72B0", edgecolor="white", linewidth=0.5)
+    bars2 = ax.bar(x + width / 2, sh_vals, width, label="Shapley Value",
+                   color="#DD8452", edgecolor="white", linewidth=0.5)
+
+    # Add value labels on bars
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 2:
+                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.5,
+                        f"{height:.0f}%", ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x)
     ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER])
     ax.set_ylabel("Frequency as top section (%)")
     ax.set_title(f"Top-Ranked Section Distribution — "
-                 f"{MODEL_DISPLAY.get(model_key, model_key)}")
-    ax.legend(frameon=False)
+                 f"{MODEL_DISPLAY.get(model_key, model_key)}", pad=10)
+    ax.legend(frameon=False, loc="upper right")
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig2_top_section_freq_{model_key}")
 
 
 # ---------------------------------------------------------------------------
-# Figure 3: FA vs Shapley scatter (method agreement)
+# Figure 3: FA vs Shapley scatter
 # ---------------------------------------------------------------------------
 
 def fig_method_scatter(data, model_key, out_dir):
-    """Scatter plot of FA vs Shapley scores per section, all abstracts."""
-    fig, ax = plt.subplots(figsize=(4.5, 4.5))
+    fig, ax = plt.subplots(figsize=(4.8, 4.8))
 
     for sec in SECTION_ORDER:
         fa_scores = []
@@ -238,16 +248,16 @@ def fig_method_scatter(data, model_key, out_dir):
                 fa_scores.append(fa_val)
                 sh_scores.append(sh_val)
         if fa_scores:
-            ax.scatter(fa_scores, sh_scores, alpha=0.3, s=12,
+            ax.scatter(fa_scores, sh_scores, alpha=0.25, s=10,
                        color=SECTION_COLORS[sec], label=SECTION_LABELS[sec],
-                       edgecolors="none")
+                       edgecolors="none", rasterized=True)
 
-    # Diagonal reference line
+    # Diagonal
     lims = [min(ax.get_xlim()[0], ax.get_ylim()[0]),
             max(ax.get_xlim()[1], ax.get_ylim()[1])]
     ax.plot(lims, lims, "k--", linewidth=0.6, alpha=0.5, zorder=0)
 
-    # Compute overall Spearman correlation
+    # Spearman
     all_fa, all_sh = [], []
     for sec in SECTION_ORDER:
         for row in data:
@@ -261,25 +271,25 @@ def fig_method_scatter(data, model_key, out_dir):
         from scipy.stats import spearmanr
         rho, pval = spearmanr(all_fa, all_sh)
         ax.text(0.05, 0.95, f"Spearman ρ = {rho:.3f}\np < {max(pval, 1e-300):.1e}",
-                transform=ax.transAxes, va="top", fontsize=9,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                          edgecolor="gray", alpha=0.8))
+                transform=ax.transAxes, va="top", fontsize=10,
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                          edgecolor="#cccccc", alpha=0.9))
 
     ax.set_xlabel("Feature Ablation score")
     ax.set_ylabel("Shapley Value score")
-    ax.set_title(f"Method Agreement — {MODEL_DISPLAY.get(model_key, model_key)}")
-    ax.legend(frameon=False, loc="lower right", markerscale=2)
+    ax.set_title(f"Method Agreement — {MODEL_DISPLAY.get(model_key, model_key)}", pad=10)
+    ax.legend(frameon=False, loc="lower right", markerscale=2.5,
+              handletextpad=0.3, borderpad=0.3)
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig3_method_scatter_{model_key}")
 
 
 # ---------------------------------------------------------------------------
-# Figure 4: Attribution distributions (violin / box plot)
+# Figure 4: Violin plots
 # ---------------------------------------------------------------------------
 
 def fig_attribution_violins(data, model_key, out_dir):
-    """Violin plot of attribution score distributions per section."""
-    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.5), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(6.0, 3.5), sharey=True)
 
     for ax, (method, method_label) in zip(axes, [("fa", "Feature Ablation"),
                                                    ("sh", "Shapley Value")]):
@@ -299,73 +309,84 @@ def fig_attribution_violins(data, model_key, out_dir):
                                   showextrema=False)
             for i, pc in enumerate(parts["bodies"]):
                 pc.set_facecolor(colors_list[i])
-                pc.set_alpha(0.7)
+                pc.set_alpha(0.65)
+                pc.set_edgecolor("white")
+                pc.set_linewidth(0.5)
             parts["cmeans"].set_color("black")
-            parts["cmedians"].set_color("gray")
+            parts["cmeans"].set_linewidth(1.0)
+            parts["cmedians"].set_color("#666666")
             parts["cmedians"].set_linestyle("--")
+            parts["cmedians"].set_linewidth(0.8)
 
         ax.set_xticks(range(len(SECTION_ORDER)))
         ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
-                           rotation=35, ha="right")
-        ax.set_title(method_label)
-        ax.set_ylabel("Attribution score" if ax == axes[0] else "")
+                           rotation=0, ha="center")
+        ax.set_title(method_label, fontsize=11, pad=8)
+        if ax == axes[0]:
+            ax.set_ylabel("Attribution score")
 
     fig.suptitle(f"Attribution Distributions — "
-                 f"{MODEL_DISPLAY.get(model_key, model_key)}", y=1.02)
+                 f"{MODEL_DISPLAY.get(model_key, model_key)}",
+                 fontsize=12, y=1.03)
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig4_violins_{model_key}")
 
 
 # ---------------------------------------------------------------------------
-# Figure 5: Section word count vs attribution (confound check)
+# Figure 5: Length vs attribution
 # ---------------------------------------------------------------------------
 
 def fig_length_vs_attribution(data, model_key, out_dir):
-    """Scatter: section word count vs attribution score (checks length confound)."""
-    fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.0))
+    fig, axes = plt.subplots(1, 2, figsize=(6.0, 3.2), sharey=True)
 
     for ax, (method, method_label) in zip(axes, [("fa", "Feature Ablation"),
                                                    ("sh", "Shapley Value")]):
         all_words, all_scores = [], []
         for sec in SECTION_ORDER:
+            words_list = []
+            scores_list = []
             for row in data:
                 w = row.get(f"words_{sec}")
                 s = row.get(f"{method}_{sec}")
                 if w is not None and s is not None and w > 0:
-                    ax.scatter(w, s, alpha=0.2, s=8, color=SECTION_COLORS[sec],
-                               edgecolors="none")
+                    words_list.append(w)
+                    scores_list.append(s)
                     all_words.append(w)
                     all_scores.append(s)
+            if words_list:
+                ax.scatter(words_list, scores_list, alpha=0.15, s=8,
+                           color=SECTION_COLORS[sec], edgecolors="none",
+                           rasterized=True)
 
         if len(all_words) > 2:
             from scipy.stats import spearmanr
-            rho, pval = spearmanr(all_words, all_scores)
+            rho, _ = spearmanr(all_words, all_scores)
             ax.text(0.05, 0.95, f"ρ = {rho:.3f}",
-                    transform=ax.transAxes, va="top", fontsize=9,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                              edgecolor="gray", alpha=0.8))
+                    transform=ax.transAxes, va="top", fontsize=10,
+                    bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                              edgecolor="#cccccc", alpha=0.9))
 
         ax.set_xlabel("Section word count")
-        ax.set_ylabel("Attribution score" if ax == axes[0] else "")
-        ax.set_title(method_label)
+        if ax == axes[0]:
+            ax.set_ylabel("Attribution score")
+        ax.set_title(method_label, fontsize=11, pad=8)
 
     fig.suptitle(f"Length vs Attribution — {MODEL_DISPLAY.get(model_key, model_key)}",
-                 y=1.02)
+                 fontsize=12, y=1.03)
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig5_length_confound_{model_key}")
 
 
 # ---------------------------------------------------------------------------
-# Figure 6: Cross-model comparison (requires ≥2 models)
+# Figure 6: Cross-model comparison
 # ---------------------------------------------------------------------------
 
 def fig_cross_model_comparison(all_runs, out_dir):
-    """Grouped bar chart comparing mean Shapley values across models."""
     if len(all_runs) < 2:
         print("    Skipping cross-model comparison (need ≥2 models)")
         return
 
-    fig, ax = plt.subplots(figsize=(5.5, 3.5))
+    fig, ax = plt.subplots(figsize=(6.0, 3.5))
 
     model_keys = list(all_runs.keys())
     n_models = len(model_keys)
@@ -394,18 +415,17 @@ def fig_cross_model_comparison(all_runs, out_dir):
     ax.set_xticks(x)
     ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER])
     ax.set_ylabel("Mean Shapley value")
-    ax.set_title("Cross-Model Comparison of Sectional Influence")
-    ax.legend(frameon=False)
+    ax.set_title("Cross-Model Comparison of Sectional Influence", pad=10)
+    ax.legend(frameon=False, loc="upper right")
     fig.tight_layout()
     save_fig(fig, out_dir, "fig6_cross_model_comparison")
 
 
 # ---------------------------------------------------------------------------
-# Figure 7: Cross-model top-section agreement heatmap
+# Figure 7: Cross-model heatmap
 # ---------------------------------------------------------------------------
 
 def fig_cross_model_top_section(all_runs, out_dir):
-    """Heatmap: % of abstracts where each section ranks #1, per model."""
     if len(all_runs) < 2:
         print("    Skipping cross-model heatmap (need ≥2 models)")
         return
@@ -421,7 +441,7 @@ def fig_cross_model_top_section(all_runs, out_dir):
 
     matrix = np.array(matrix)
 
-    fig, ax = plt.subplots(figsize=(5.0, 2.5))
+    fig, ax = plt.subplots(figsize=(5.5, 2.8))
     im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto")
 
     ax.set_xticks(range(len(SECTION_ORDER)))
@@ -429,26 +449,25 @@ def fig_cross_model_top_section(all_runs, out_dir):
     ax.set_yticks(range(len(model_keys)))
     ax.set_yticklabels([MODEL_DISPLAY.get(k, k) for k in model_keys])
 
-    # Annotate cells
     for i in range(len(model_keys)):
         for j in range(len(SECTION_ORDER)):
             val = matrix[i, j]
-            color = "white" if val > matrix.max() * 0.6 else "black"
+            color = "white" if val > matrix.max() * 0.55 else "black"
             ax.text(j, i, f"{val:.1f}%", ha="center", va="center",
-                    fontsize=9, color=color)
+                    fontsize=10, fontweight="bold", color=color)
 
-    ax.set_title("Top-Ranked Section Frequency by Model (Shapley, %)")
-    fig.colorbar(im, ax=ax, shrink=0.8, label="%")
+    ax.set_title("Top-Ranked Section Frequency by Model (Shapley, %)", pad=12)
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label("%", fontsize=10)
     fig.tight_layout()
     save_fig(fig, out_dir, "fig7_cross_model_heatmap")
 
 
 # ---------------------------------------------------------------------------
-# Table outputs (LaTeX for paper, plain text for terminal)
+# Tables
 # ---------------------------------------------------------------------------
 
 def print_summary_table(all_runs, out_dir):
-    """Generate summary statistics table as LaTeX and plain text."""
     lines_txt = []
     lines_tex = []
 
@@ -468,7 +487,6 @@ def print_summary_table(all_runs, out_dir):
     lines_tex.append(r"\begin{tabular}{" + col_spec + "}")
     lines_tex.append(r"\toprule")
 
-    # Header
     header_parts = [r"\textbf{Section}"]
     for model_key in all_runs:
         display = MODEL_DISPLAY.get(model_key, model_key)
@@ -505,29 +523,23 @@ def print_summary_table(all_runs, out_dir):
     lines_tex.append(r"\end{tabular}")
     lines_tex.append(r"\end{table}")
 
-    # Agreement row
     lines_txt.append("-" * 80)
     agree_parts = ["Agreement   "]
-    agree_tex = ["Top-1 agree (\\%)"]
     for model_key, run in all_runs.items():
         meta = run["meta"]
         pct = meta.get("top_section_agreement_pct", "?")
         agree_parts.append(f"{pct}%")
-        agree_tex.extend([r"\multicolumn{2}{c}{" + f"{pct}" + r"\%}"])
     lines_txt.append("  ".join(agree_parts))
-
     lines_txt.append("=" * 80)
 
-    # Print to terminal
     print("\n".join(lines_txt))
 
-    # Save LaTeX
     tex_path = out_dir / "table1_mean_attribution.tex"
     with open(tex_path, "w") as f:
         f.write("\n".join(lines_tex))
     print(f"\n    LaTeX table saved to {tex_path}")
 
-    # Table 2: Top-section frequency
+    # Table 2
     lines_tex2 = []
     lines_tex2.append(r"\begin{table}[t]")
     lines_tex2.append(r"\centering")
@@ -564,39 +576,16 @@ def print_summary_table(all_runs, out_dir):
     print(f"    LaTeX table saved to {tex2_path}")
 
 
-# ---------------------------------------------------------------------------
-# Table 3: Method comparison statistics
-# ---------------------------------------------------------------------------
-
 def print_method_comparison(all_runs, out_dir):
-    """Compute and print method comparison statistics."""
     lines = []
     lines.append("\n" + "=" * 80)
     lines.append("TABLE 3: Method Comparison Statistics")
     lines.append("=" * 80)
 
-    tex_lines = []
-    tex_lines.append(r"\begin{table}[t]")
-    tex_lines.append(r"\centering")
-    tex_lines.append(r"\caption{Comparison of Feature Ablation and Shapley Value "
-                     r"Sampling across models.}")
-    tex_lines.append(r"\label{tab:method_comparison}")
-    tex_lines.append(r"\small")
-    tex_lines.append(r"\begin{tabular}{l" + "c" * len(all_runs) + "}")
-    tex_lines.append(r"\toprule")
-
-    header = [r"\textbf{Metric}"]
-    for mk in all_runs:
-        header.append(r"\textbf{" + MODEL_DISPLAY.get(mk, mk) + "}")
-    tex_lines.append(" & ".join(header) + r" \\")
-    tex_lines.append(r"\midrule")
-
-    # Compute per-model stats
     for model_key, run in all_runs.items():
         data = run["data"]
         lines.append(f"\n--- {MODEL_DISPLAY.get(model_key, model_key)} ---")
 
-        # Spearman correlation
         all_fa, all_sh = [], []
         for sec in SECTION_ORDER:
             for row in data:
@@ -616,24 +605,23 @@ def print_method_comparison(all_runs, out_dir):
             except ImportError:
                 lines.append("  (scipy not available for correlation stats)")
 
-        # Top-1 agreement
         agree = sum(1 for row in data
                     if row.get("fa_top_section") == row.get("sh_top_section"))
         agree_pct = agree / len(data) * 100
         lines.append(f"  Top-1 agreement:     {agree}/{len(data)} ({agree_pct:.1f}%)")
 
-        # Timing
-        fa_avg = np.mean([row["fa_time_s"] for row in data
-                          if row.get("fa_time_s") is not None])
-        sh_avg = np.mean([row["sh_time_s"] for row in data
-                          if row.get("sh_time_s") is not None])
+        fa_times = [row["fa_time_s"] for row in data if row.get("fa_time_s") is not None]
+        sh_times = [row["sh_time_s"] for row in data if row.get("sh_time_s") is not None]
+        fa_avg = np.mean(fa_times) if fa_times else 0
+        sh_avg = np.mean(sh_times) if sh_times else 0
         lines.append(f"  Avg FA time:         {fa_avg:.3f}s")
         lines.append(f"  Avg Shapley time:    {sh_avg:.3f}s")
-        lines.append(f"  Shapley/FA ratio:    {sh_avg/fa_avg:.1f}x")
+        if fa_avg > 0:
+            lines.append(f"  Shapley/FA ratio:    {sh_avg/fa_avg:.1f}x")
 
     print("\n".join(lines))
 
-    # Friedman test across sections (if scipy available)
+    # Friedman tests
     print("\n--- Statistical Tests ---")
     for model_key, run in all_runs.items():
         data = run["data"]
@@ -641,8 +629,6 @@ def print_method_comparison(all_runs, out_dir):
 
         try:
             from scipy.stats import friedmanchisquare
-            # For Friedman: need matched observations across sections
-            # Use only abstracts that have all 5 sections
             matched = []
             for row in data:
                 vals = [row.get(f"sh_{sec}") for sec in SECTION_ORDER]
@@ -667,15 +653,19 @@ def print_method_comparison(all_runs, out_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=str, default=None,
-                        help="Output directory for figures (default: $PROJECT_SCRATCH/outputs/figures)")
-    parser.add_argument("--models", nargs="*", default=None,
-                        help="Specific model keys to analyse (default: all available)")
+    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--models", nargs="*", default=None)
     args = parser.parse_args()
 
-    # Determine base output dir
-    scratch = os.environ.get("PROJECT_SCRATCH", ".")
-    base_dir = Path(scratch) / "outputs"
+    ##
+
+    scratch = os.environ.get("PROJECT_SCRATCH", "")
+    if scratch:
+        base_dir = Path(scratch) / "outputs"
+    else:
+        base_dir = Path("results")
+
+    ##
 
     if args.output:
         out_dir = Path(args.output)
@@ -687,13 +677,14 @@ def main():
     print(f"  Base dir: {base_dir}")
     print(f"  Output:   {out_dir}\n")
 
-    # Discover runs
     all_runs = discover_runs(base_dir)
     if args.models:
         all_runs = {k: v for k, v in all_runs.items() if k in args.models}
 
     if not all_runs:
-        print("ERROR: No completed runs found. Check $PROJECT_SCRATCH/outputs/")
+        print("ERROR: No completed runs found.")
+        print(f"  Checked: {base_dir}")
+        print(f"  Looking for directories named full_*/summary.csv")
         sys.exit(1)
 
     print(f"  Found {len(all_runs)} model run(s): {list(all_runs.keys())}")
@@ -701,7 +692,6 @@ def main():
         print(f"    {mk}: {len(run['data'])} abstracts")
     print()
 
-    # Per-model figures
     for model_key, run in all_runs.items():
         data = run["data"]
         print(f"\n--- Generating figures for {MODEL_DISPLAY.get(model_key, model_key)} ---")
@@ -711,12 +701,10 @@ def main():
         fig_attribution_violins(data, model_key, out_dir)
         fig_length_vs_attribution(data, model_key, out_dir)
 
-    # Cross-model figures
     print(f"\n--- Cross-model analysis ---")
     fig_cross_model_comparison(all_runs, out_dir)
     fig_cross_model_top_section(all_runs, out_dir)
 
-    # Tables
     print(f"\n--- Summary Tables ---")
     print_summary_table(all_runs, out_dir)
     print_method_comparison(all_runs, out_dir)
