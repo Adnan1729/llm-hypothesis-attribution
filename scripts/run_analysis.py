@@ -180,7 +180,7 @@ def fig_mean_attribution_bars(data, model_key, out_dir):
                linewidth=0.5, capsize=3, error_kw={"linewidth": 0.8},
                width=0.7)
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=0, ha="center")
+        ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=9)
         ax.set_title(method_label, fontsize=11, pad=8)
         if ax == axes[0]:
             ax.set_ylabel("Mean attribution score")
@@ -222,7 +222,8 @@ def fig_top_section_frequency(data, model_key, out_dir):
                         f"{height:.0f}%", ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x)
-    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER])
+    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
+                       rotation=20, ha="right", fontsize=9)
     ax.set_ylabel("Frequency as top section (%)")
     ax.set_title(f"Top-Ranked Section Distribution — "
                  f"{MODEL_DISPLAY.get(model_key, model_key)}", pad=10)
@@ -320,7 +321,7 @@ def fig_attribution_violins(data, model_key, out_dir):
 
         ax.set_xticks(range(len(SECTION_ORDER)))
         ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
-                           rotation=0, ha="center")
+                           rotation=20, ha="right", fontsize=9)
         ax.set_title(method_label, fontsize=11, pad=8)
         if ax == axes[0]:
             ax.set_ylabel("Attribution score")
@@ -413,7 +414,8 @@ def fig_cross_model_comparison(all_runs, out_dir):
                capsize=2, error_kw={"linewidth": 0.6})
 
     ax.set_xticks(x)
-    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER])
+    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
+                       rotation=20, ha="right", fontsize=9)
     ax.set_ylabel("Mean Shapley value")
     ax.set_title("Cross-Model Comparison of Sectional Influence", pad=10)
     ax.legend(frameon=False, loc="upper right")
@@ -445,7 +447,8 @@ def fig_cross_model_top_section(all_runs, out_dir):
     im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto")
 
     ax.set_xticks(range(len(SECTION_ORDER)))
-    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER])
+    ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
+                       rotation=20, ha="right", fontsize=9)
     ax.set_yticks(range(len(model_keys)))
     ax.set_yticklabels([MODEL_DISPLAY.get(k, k) for k in model_keys])
 
