@@ -2,7 +2,7 @@
 
 Large language models are increasingly used to generate scientific hypotheses, yet which parts of scientific text actually drive these outputs remains unknown. This repository contains the code, data, and analysis for the first large-scale attribution study measuring how rhetorical sections of scientific abstracts: Background, Objective, Method, Result, and Other; influence LLM-generated hypotheses.
 
-**Central finding:** Result sections almost never drive hypothesis generation (0.4–0.7% top-ranked), while Objective sections dominate (36–38%). This hierarchy is stable across three model scales (1.1B to 8B parameters) and two attribution methods (Feature Ablation and Shapley Value Sampling), which agree in 93–95% of cases.
+**Central finding:** Our central finding is that Method sections dominate hypothesis generation (36--38\% top-ranked), while Objective sections punch above their weight (17--19\% top-ranked from only 12\% of sentences) and Other sections contribute negligibly ($<$1\% from 3\% of sentences). This hierarchy (Method $>$ Background $>$ Objective $\approx$ Result $\gg$ Other) is stable across model scales from 1.1B to 8B parameters. The two attribution methods show 93.8--95.3\% agreement on the most influential section (Spearman $\rho > 0.93$, $p < 10^{-18}$), suggesting that the computationally cheaper Feature Ablation is sufficient for practitioners.
 
 ## Table of Contents
 
