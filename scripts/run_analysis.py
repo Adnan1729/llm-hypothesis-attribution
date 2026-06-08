@@ -150,47 +150,115 @@ def save_fig(fig, path, name):
     plt.close(fig)
     print(f"    Saved {name}.pdf / .png")
 
+# --- Bootstrap, IQR, and normalization helpers ------------------------------
+
+BOOTSTRAP_REPLICATES = 2000
+BOOTSTRAP_SEED = 42
+
+
+def bootstrap_ci(values, n_replicates=BOOTSTRAP_REPLICATES, alpha=0.05,
+                 seed=BOOTSTRAP_SEED):
+    """Return (mean, ci_lo, ci_hi) using percentile bootstrap on the mean."""
+    arr = np.asarray(values, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if len(arr) == 0:
+        return 0.0, 0.0, 0.0
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(arr), size=(n_replicates, len(arr)))
+    boot_means = arr[idx].mean(axis=1)
+    lo = np.percentile(boot_means, 100 * alpha / 2)
+    hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
+    return float(np.mean(arr)), float(lo), float(hi)
+
+
+def iqr_bounds(values):
+    arr = np.asarray(values, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if len(arr) == 0:
+        return 0.0, 0.0, 0.0
+    q1, med, q3 = np.percentile(arr, [25, 50, 75])
+    return float(med), float(q1), float(q3)
+
+
+def within_abstract_normalized(data, method):
+    """For each abstract, divide each section's score by the sum of positive
+    section scores in that abstract. Returns {section: [shares...]}.
+    Removes hypothesis-length / per-abstract-baseline scale variation."""
+    shares = {s: [] for s in SECTION_ORDER}
+    for row in data:
+        raw = {s: row.get(f"{method}_{s}") for s in SECTION_ORDER}
+        present = {s: v for s, v in raw.items() if v is not None}
+        pos_sum = sum(max(v, 0.0) for v in present.values())
+        if pos_sum <= 0:
+            continue
+        for s, v in present.items():
+            shares[s].append(max(v, 0.0) / pos_sum)
+    return shares
+
+
+def draw_bar_with_ci_and_iqr(ax, x_positions, means, ci_los, ci_his,
+                              q1s, q3s, colors, width=0.7):
+    """Bars with two-tier uncertainty: thick CI cap on mean + thin IQR whisker."""
+    bars = ax.bar(x_positions, means, color=colors, edgecolor="white",
+                  linewidth=0.5, width=width, zorder=2)
+    ax.errorbar(x_positions, means,
+                yerr=[np.array(means) - np.array(ci_los),
+                      np.array(ci_his) - np.array(means)],
+                fmt="none", ecolor="black", elinewidth=1.4, capsize=4,
+                capthick=1.2, zorder=3)
+    for xi, q1, q3 in zip(x_positions, q1s, q3s):
+        ax.plot([xi, xi], [q1, q3], color="#444444", linewidth=0.6,
+                alpha=0.55, zorder=1)
+        tw = width * 0.18
+        ax.plot([xi - tw, xi + tw], [q1, q1],
+                color="#444444", linewidth=0.6, alpha=0.55, zorder=1)
+        ax.plot([xi - tw, xi + tw], [q3, q3],
+                color="#444444", linewidth=0.6, alpha=0.55, zorder=1)
+    return bars
 
 # ---------------------------------------------------------------------------
 # Figure 1: Mean attribution scores per section
 # ---------------------------------------------------------------------------
 
 def fig_mean_attribution_bars(data, model_key, out_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(6.0, 3.2), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(6.2, 3.4), sharey=True)
 
     for ax, (method, method_label) in zip(axes, [("fa", "Feature Ablation"),
                                                    ("sh", "Shapley Value")]):
-        means = []
-        stds = []
-        colors = []
-        labels = []
+        means, ci_los, ci_his, q1s, q3s, colors = [], [], [], [], [], []
         for sec in SECTION_ORDER:
             scores = get_section_scores(data, method, sec)
             if scores:
-                means.append(np.mean(scores))
-                stds.append(np.std(scores))
+                m, lo, hi = bootstrap_ci(scores)
+                _, q1, q3 = iqr_bounds(scores)
             else:
-                means.append(0)
-                stds.append(0)
+                m = lo = hi = q1 = q3 = 0.0
+            means.append(m); ci_los.append(lo); ci_his.append(hi)
+            q1s.append(q1); q3s.append(q3)
             colors.append(SECTION_COLORS[sec])
-            labels.append(SECTION_LABELS[sec])
 
         x = np.arange(len(SECTION_ORDER))
-        ax.bar(x, means, yerr=stds, color=colors, edgecolor="white",
-               linewidth=0.5, capsize=3, error_kw={"linewidth": 0.8},
-               width=0.7)
+        draw_bar_with_ci_and_iqr(ax, x, means, ci_los, ci_his, q1s, q3s, colors)
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=9)
+        ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
+                           rotation=20, ha="right", fontsize=9)
         ax.set_title(method_label, fontsize=11, pad=8)
-        if ax == axes[0]:
+        if ax is axes[0]:
             ax.set_ylabel("Mean attribution score")
+
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color="black", lw=1.4, label="95% CI of mean"),
+        Line2D([0], [0], color="#444444", lw=0.6, alpha=0.55,
+               label="IQR (Q1–Q3)"),
+    ]
+    axes[-1].legend(handles=legend_handles, loc="upper right", frameon=False,
+                    fontsize=8, handlelength=1.2)
 
     fig.suptitle(f"Sectional Attribution — {MODEL_DISPLAY.get(model_key, model_key)}",
                  fontsize=12, y=1.03)
     fig.tight_layout()
     save_fig(fig, out_dir, f"fig1_mean_attribution_{model_key}")
-
-
 # ---------------------------------------------------------------------------
 # Figure 2: Top-section frequency
 # ---------------------------------------------------------------------------
@@ -387,41 +455,56 @@ def fig_cross_model_comparison(all_runs, out_dir):
         print("    Skipping cross-model comparison (need ≥2 models)")
         return
 
-    fig, ax = plt.subplots(figsize=(6.0, 3.5))
-
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
     model_keys = list(all_runs.keys())
     n_models = len(model_keys)
     n_sections = len(SECTION_ORDER)
     x = np.arange(n_sections)
     width = 0.8 / n_models
-
     model_colors = ["#4C72B0", "#DD8452", "#55A868"]
 
     for j, model_key in enumerate(model_keys):
         data = all_runs[model_key]["data"]
-        means = []
-        stds = []
+        means, ci_los, ci_his, q1s, q3s = [], [], [], [], []
         for sec in SECTION_ORDER:
             scores = get_section_scores(data, "sh", sec)
-            means.append(np.mean(scores) if scores else 0)
-            stds.append(np.std(scores) if scores else 0)
+            if scores:
+                m, lo, hi = bootstrap_ci(scores)
+                _, q1, q3 = iqr_bounds(scores)
+            else:
+                m = lo = hi = q1 = q3 = 0.0
+            means.append(m); ci_los.append(lo); ci_his.append(hi)
+            q1s.append(q1); q3s.append(q3)
 
         offset = (j - (n_models - 1) / 2) * width
-        ax.bar(x + offset, means, width, yerr=stds,
+        xpos = x + offset
+        ax.bar(xpos, means, width,
                label=MODEL_DISPLAY.get(model_key, model_key),
                color=model_colors[j % len(model_colors)],
-               edgecolor="white", linewidth=0.5,
-               capsize=2, error_kw={"linewidth": 0.6})
+               edgecolor="white", linewidth=0.5, zorder=2)
+        ax.errorbar(xpos, means,
+                    yerr=[np.array(means) - np.array(ci_los),
+                          np.array(ci_his) - np.array(means)],
+                    fmt="none", ecolor="black", elinewidth=1.0, capsize=2.5,
+                    capthick=1.0, zorder=3)
+        for xi, q1, q3 in zip(xpos, q1s, q3s):
+            ax.plot([xi, xi], [q1, q3], color="#444444", linewidth=0.5,
+                    alpha=0.45, zorder=1)
+            tw = width * 0.18
+            ax.plot([xi - tw, xi + tw], [q1, q1],
+                    color="#444444", linewidth=0.5, alpha=0.45, zorder=1)
+            ax.plot([xi - tw, xi + tw], [q3, q3],
+                    color="#444444", linewidth=0.5, alpha=0.45, zorder=1)
 
     ax.set_xticks(x)
     ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
                        rotation=20, ha="right", fontsize=9)
     ax.set_ylabel("Mean Shapley value")
-    ax.set_title("Cross-Model Comparison of Sectional Influence", pad=10)
+    ax.set_title("Cross-Model Comparison of Sectional Influence "
+                 "(bars: 95% CI of mean; whiskers: IQR)", pad=10, fontsize=10)
     ax.legend(frameon=False, loc="upper right")
     fig.tight_layout()
     save_fig(fig, out_dir, "fig6_cross_model_comparison")
-
 
 # ---------------------------------------------------------------------------
 # Figure 7: Cross-model heatmap
@@ -465,6 +548,54 @@ def fig_cross_model_top_section(all_runs, out_dir):
     fig.tight_layout()
     save_fig(fig, out_dir, "fig7_cross_model_heatmap")
 
+# ---------------------------------------------------------------------------
+# Figure 8: Within-abstract normalized attribution shares (NEW)
+# ---------------------------------------------------------------------------
+
+def fig_normalized_attribution_bars(data, model_key, out_dir):
+    """Within-abstract attribution share: score / sum-of-positive-scores.
+    Unitless, bounded [0,1] per abstract."""
+    fig, axes = plt.subplots(1, 2, figsize=(6.2, 3.4), sharey=True)
+
+    for ax, (method, method_label) in zip(axes, [("fa", "Feature Ablation"),
+                                                   ("sh", "Shapley Value")]):
+        shares = within_abstract_normalized(data, method)
+        means, ci_los, ci_his, q1s, q3s, colors = [], [], [], [], [], []
+        for sec in SECTION_ORDER:
+            vals = shares[sec]
+            if vals:
+                m, lo, hi = bootstrap_ci(vals)
+                _, q1, q3 = iqr_bounds(vals)
+            else:
+                m = lo = hi = q1 = q3 = 0.0
+            means.append(m); ci_los.append(lo); ci_his.append(hi)
+            q1s.append(q1); q3s.append(q3)
+            colors.append(SECTION_COLORS[sec])
+
+        x = np.arange(len(SECTION_ORDER))
+        draw_bar_with_ci_and_iqr(ax, x, means, ci_los, ci_his, q1s, q3s, colors)
+        ax.set_xticks(x)
+        ax.set_xticklabels([SECTION_LABELS[s] for s in SECTION_ORDER],
+                           rotation=20, ha="right", fontsize=9)
+        ax.set_title(method_label, fontsize=11, pad=8)
+        ax.set_ylim(0, 1.0)
+        if ax is axes[0]:
+            ax.set_ylabel("Within-abstract attribution share")
+
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color="black", lw=1.4, label="95% CI of mean"),
+        Line2D([0], [0], color="#444444", lw=0.6, alpha=0.55,
+               label="IQR (Q1–Q3)"),
+    ]
+    axes[-1].legend(handles=legend_handles, loc="upper right", frameon=False,
+                    fontsize=8, handlelength=1.2)
+
+    fig.suptitle(f"Normalized Sectional Attribution — "
+                 f"{MODEL_DISPLAY.get(model_key, model_key)}",
+                 fontsize=12, y=1.03)
+    fig.tight_layout()
+    save_fig(fig, out_dir, f"fig8_normalized_attribution_{model_key}")
 
 # ---------------------------------------------------------------------------
 # Tables
@@ -474,14 +605,17 @@ def print_summary_table(all_runs, out_dir):
     lines_txt = []
     lines_tex = []
 
-    lines_txt.append("=" * 80)
-    lines_txt.append("TABLE 1: Mean Attribution Scores by Section and Method")
-    lines_txt.append("=" * 80)
+    lines_txt.append("=" * 100)
+    lines_txt.append("TABLE 1: Mean Attribution Scores by Section "
+                     "[mean (SD) | 95% CI half-width]")
+    lines_txt.append("=" * 100)
 
     lines_tex.append(r"\begin{table}[t]")
     lines_tex.append(r"\centering")
-    lines_tex.append(r"\caption{Mean attribution scores by section across models. "
-                     r"Standard deviations in parentheses.}")
+    lines_tex.append(r"\caption{Mean attribution scores by section across "
+                     r"models. Format: mean (SD) [$\pm$ 95\% bootstrap CI "
+                     r"half-width, $B$=2000]. SD describes per-abstract spread; "
+                     r"the bracketed CI describes the precision of the mean.}")
     lines_tex.append(r"\label{tab:mean_attribution}")
     lines_tex.append(r"\small")
 
@@ -492,8 +626,8 @@ def print_summary_table(all_runs, out_dir):
 
     header_parts = [r"\textbf{Section}"]
     for model_key in all_runs:
-        display = MODEL_DISPLAY.get(model_key, model_key)
-        header_parts.append(r"\multicolumn{2}{c}{\textbf{" + display + "}}")
+        header_parts.append(r"\multicolumn{2}{c}{\textbf{"
+                            + MODEL_DISPLAY.get(model_key, model_key) + "}}")
     lines_tex.append(" & ".join(header_parts) + r" \\")
 
     subheader_parts = [""]
@@ -505,20 +639,19 @@ def print_summary_table(all_runs, out_dir):
     for sec in SECTION_ORDER:
         txt_parts = [f"{SECTION_LABELS[sec]:<12}"]
         tex_parts = [SECTION_LABELS[sec]]
-
         for model_key, run in all_runs.items():
             data = run["data"]
             for method in ["fa", "sh"]:
                 scores = get_section_scores(data, method, sec)
                 if scores:
-                    m = np.mean(scores)
-                    s = np.std(scores)
-                    txt_parts.append(f"{m:>8.1f} ± {s:<6.1f}")
-                    tex_parts.append(f"{m:.1f} ({s:.1f})")
+                    m, lo, hi = bootstrap_ci(scores)
+                    sd = float(np.std(scores, ddof=1))
+                    hw = (hi - lo) / 2.0
+                    txt_parts.append(f"{m:>6.1f} ({sd:>4.1f}) [{hw:>4.2f}]")
+                    tex_parts.append(f"{m:.1f} ({sd:.1f}) [$\\pm${hw:.2f}]")
                 else:
-                    txt_parts.append(f"{'N/A':>17}")
+                    txt_parts.append(f"{'N/A':>20}")
                     tex_parts.append("--")
-
         lines_txt.append("  ".join(txt_parts))
         lines_tex.append(" & ".join(tex_parts) + r" \\")
 
@@ -526,23 +659,21 @@ def print_summary_table(all_runs, out_dir):
     lines_tex.append(r"\end{tabular}")
     lines_tex.append(r"\end{table}")
 
-    lines_txt.append("-" * 80)
+    lines_txt.append("-" * 100)
     agree_parts = ["Agreement   "]
     for model_key, run in all_runs.items():
-        meta = run["meta"]
-        pct = meta.get("top_section_agreement_pct", "?")
+        pct = run["meta"].get("top_section_agreement_pct", "?")
         agree_parts.append(f"{pct}%")
     lines_txt.append("  ".join(agree_parts))
-    lines_txt.append("=" * 80)
+    lines_txt.append("=" * 100)
 
     print("\n".join(lines_txt))
-
     tex_path = out_dir / "table1_mean_attribution.tex"
     with open(tex_path, "w") as f:
         f.write("\n".join(lines_tex))
     print(f"\n    LaTeX table saved to {tex_path}")
 
-    # Table 2
+    # Table 2 (unchanged)
     lines_tex2 = []
     lines_tex2.append(r"\begin{table}[t]")
     lines_tex2.append(r"\centering")
@@ -553,13 +684,11 @@ def print_summary_table(all_runs, out_dir):
     col_spec2 = "l" + "c" * len(all_runs)
     lines_tex2.append(r"\begin{tabular}{" + col_spec2 + "}")
     lines_tex2.append(r"\toprule")
-
     header2 = [r"\textbf{Section}"]
     for model_key in all_runs:
         header2.append(r"\textbf{" + MODEL_DISPLAY.get(model_key, model_key) + "}")
     lines_tex2.append(" & ".join(header2) + r" \\")
     lines_tex2.append(r"\midrule")
-
     for sec in SECTION_ORDER:
         row_parts = [SECTION_LABELS[sec]]
         for model_key, run in all_runs.items():
@@ -568,15 +697,52 @@ def print_summary_table(all_runs, out_dir):
             pct = counts.get(sec, 0) / total * 100
             row_parts.append(f"{pct:.1f}\\%")
         lines_tex2.append(" & ".join(row_parts) + r" \\")
-
     lines_tex2.append(r"\bottomrule")
     lines_tex2.append(r"\end{tabular}")
     lines_tex2.append(r"\end{table}")
-
     tex2_path = out_dir / "table2_top_section.tex"
     with open(tex2_path, "w") as f:
         f.write("\n".join(lines_tex2))
     print(f"    LaTeX table saved to {tex2_path}")
+
+    # Table 3 (NEW) — within-abstract normalized attribution shares
+    lines_tex3 = []
+    lines_tex3.append(r"\begin{table}[t]")
+    lines_tex3.append(r"\centering")
+    lines_tex3.append(r"\caption{Within-abstract normalized attribution share "
+                      r"(Shapley): for each abstract, each section's score is "
+                      r"divided by the sum of positive section scores; reported "
+                      r"as mean $\pm$ 95\% bootstrap CI half-width across "
+                      r"abstracts. Unitless, bounded in $[0, 1]$ per abstract.}")
+    lines_tex3.append(r"\label{tab:normalized_share}")
+    lines_tex3.append(r"\small")
+    col_spec3 = "l" + "c" * len(all_runs)
+    lines_tex3.append(r"\begin{tabular}{" + col_spec3 + "}")
+    lines_tex3.append(r"\toprule")
+    header3 = [r"\textbf{Section}"]
+    for model_key in all_runs:
+        header3.append(r"\textbf{" + MODEL_DISPLAY.get(model_key, model_key) + "}")
+    lines_tex3.append(" & ".join(header3) + r" \\")
+    lines_tex3.append(r"\midrule")
+    for sec in SECTION_ORDER:
+        row_parts = [SECTION_LABELS[sec]]
+        for model_key, run in all_runs.items():
+            shares = within_abstract_normalized(run["data"], "sh")
+            vals = shares[sec]
+            if vals:
+                m, lo, hi = bootstrap_ci(vals)
+                hw = (hi - lo) / 2.0
+                row_parts.append(f"{m:.3f} [$\\pm${hw:.3f}]")
+            else:
+                row_parts.append("--")
+        lines_tex3.append(" & ".join(row_parts) + r" \\")
+    lines_tex3.append(r"\bottomrule")
+    lines_tex3.append(r"\end{tabular}")
+    lines_tex3.append(r"\end{table}")
+    tex3_path = out_dir / "table3_normalized_share.tex"
+    with open(tex3_path, "w") as f:
+        f.write("\n".join(lines_tex3))
+    print(f"    LaTeX table saved to {tex3_path}")
 
 
 def print_method_comparison(all_runs, out_dir):
@@ -703,6 +869,7 @@ def main():
         fig_method_scatter(data, model_key, out_dir)
         fig_attribution_violins(data, model_key, out_dir)
         fig_length_vs_attribution(data, model_key, out_dir)
+        fig_normalized_attribution_bars(data, model_key, out_dir)
 
     print(f"\n--- Cross-model analysis ---")
     fig_cross_model_comparison(all_runs, out_dir)
